@@ -21,12 +21,61 @@ void proca()
     exit();
 }
 
+void procb()
+{
+    putchar('B');
+    yield();
+
+    putchar('B');
+    exit();
+}
+
+void procc()
+{
+    putchar('C');
+    yield();
+
+    putchar('C');
+    yield();
+
+    putchar('C');
+    yield();
+
+    putchar('C');
+    exit();
+}
+
+void procd()
+{
+    putchar('D');
+    yield();
+
+    putchar('D');
+    yield();
+
+    putchar('D');
+    exit();
+}
+
+void proce()
+{
+    putchar('E');
+    yield();
+
+    putchar('E');
+    exit();
+}
+
 void prockernel()
 {
     print("Kernel process has started...\n");
 
 	// Create the user processes
-	createuserprocess(proca, (void *) 0x10000);
+    createuserprocess(proca, (void *) 0x10000);
+    createuserprocess(procb, (void *) 0x20000);
+    createuserprocess(procc, (void *) 0x30000);
+    createuserprocess(procd, (void *) 0x40000);
+    createuserprocess(proce, (void *) 0x50000);
 
 	// Schedule the next process
 	int userprocs = ready_process_count();
@@ -55,8 +104,31 @@ int kernel()
 // Selection must be made from the processes array (proc_t processes[])
 int schedule()
 {
-    int count = 0;
-    return count;
+    int start = 0;
+
+    // If a user process has run before,
+    // start looking after that process
+    if (prevprocess != 0)
+    {
+        start = prevprocess->pid + 1;
+    }
+
+    // Look through all processes
+    for (int count = 0; count < MAX_PROCS; count++)
+    {
+        int index = (start + count) % MAX_PROCS;
+
+        // Find a ready USER process
+        if (processes[index].type == PROC_TYPE_USER &&
+            processes[index].status == PROC_STATUS_READY)
+        {
+            nextprocess = &processes[index];
+            return 1;
+        }
+    }
+
+    // No ready user process was found
+    return 0;
 }
 
 // Yield the current process
@@ -66,6 +138,30 @@ int schedule()
 // The next process should have already been selected via scheduling
 void yield()
 {
+    // If a user process is running
+    if (runningprocess->type == PROC_TYPE_USER)
+    {
+        // It is not finished, so make it ready to run again
+        runningprocess->status = PROC_STATUS_READY;
+
+        // Remember the user process that just ran
+        prevprocess = runningprocess;
+
+        // Go back to the kernel
+        nextprocess = kernelprocess;
+
+        contextswitch();
+    }
+
+    // If the kernel is running
+    else if (runningprocess->type == PROC_TYPE_KERNEL)
+    {
+        // Pick the next ready user process
+        if (schedule())
+        {
+            contextswitch();
+        }
+    }
 }
 
 // Terminate the process that is currently running (proc_t current)
@@ -73,6 +169,22 @@ void yield()
 // Context switch to the kernel process
 void exit()
 {
+    // If the kernel is exiting, just return
+    if (runningprocess->type == PROC_TYPE_KERNEL)
+    {
+        return;
+    }
+
+    // Terminate the current user process
+    runningprocess->status = PROC_STATUS_TERMINATED;
+
+    // Remember the last user process
+    prevprocess = runningprocess;
+
+    // Switch back to the kernel
+    nextprocess = kernelprocess;
+
+    contextswitch();
 }
 
 // Create a new user process
@@ -82,7 +194,32 @@ void exit()
 // Store the newly created process inside the processes array (proc_t processes[])
 int createuserprocess(void *func, void *stack)
 {
-    (void)func; // Remove this when implementing your function
-    (void)stack; // Remove this when implementing your function
+    // If we have filled our process array, return -1
+    if (process_index >= MAX_PROCS)
+    {
+        return -1;
+    }
+
+    // Create the new user process
+    proc_t userproc;
+
+    userproc.status = PROC_STATUS_READY;
+    userproc.type = PROC_TYPE_USER;
+
+    // Initialize the stack
+    userproc.esp = stack;
+    userproc.ebp = stack;
+
+    // Start executing at func
+    userproc.eip = func;
+
+    // Assign PID
+    userproc.pid = process_index;
+
+    // Add process to process array
+    processes[process_index] = userproc;
+
+    process_index++;
+
     return 0;
 }
